@@ -1,2 +1,2 @@
-__all__ = ["models"]
+__all__ = ["models","utils"]
 __version__ = '1.0.0'
