@@ -46,36 +46,36 @@ def leaky_relu(z):
     
 
 
-# Load the default Payne model
+# Load the default Atmosnet model
 def load_model():
     """
-    Load the default Payne model.
+    Load the default Atmosnet model.
     """
 
     datadir = utils.datadir()
     files = glob(datadir+'atmosnet_*.npz')
     nfiles = len(files)
     if nfiles==0:
-        raise Exception("No Payne model files in "+datadir)
+        raise Exception("No Atmosnet model files in "+datadir)
     if nfiles>1:
         return AtmosModelSet.read(files)
     else:
         return AtmosModel.read(files)
 
 
-# Load a single or list of Payne models
-def load_payne_model(mfile):
+# Load a single or list of atmosnet models
+def load_atmosnet_model(mfile):
     """
-    Load a  Payne model from file.
+    Load an atmosnet model from file.
 
     Returns
     -------
     mfiles : string
-       File name (or list of filenames) of Payne models to load.
+       File name (or list of filenames) of atmosnet models to load.
 
     Examples
     --------
-    model = load_payne_model()
+    model = load_atmosnet_model()
 
     """
 
@@ -104,13 +104,13 @@ def load_payne_model(mfile):
 
 def load_models():
     """
-    Load all Payne models from the atmosnet data/ directory
+    Load all Atmosnet models from the atmosnet data/ directory
     and return as a AtmosModel.
 
     Returns
     -------
     models : AtmosModel
-        AtmosModel for all Payne models in the
+        AtmosModel for all Atmosnet models in the
         atmosnet /data directory.
 
     Examples
@@ -126,7 +126,7 @@ def load_models():
     return AtmosModel.read(files)
 
 def check_params(model,params):
-    """ Check input fit or fixed parameters against Payne model labels."""
+    """ Check input fit or fixed parameters against Atmosnet model labels."""
     # Check the input labels against the Paybe model labels
 
     if isinstance(params,dict):
@@ -155,7 +155,7 @@ def check_params(model,params):
             par = 'VTURB'
         # check against model labels
         if (par != 'ALPHA_H') and (not par in model.labels):
-            raise ValueError(par+' NOT a Payne label. Available labels are '+','.join(model.labels)+' and ALPHA_H')
+            raise ValueError(par+' NOT a Atmosnet label. Available labels are '+','.join(model.labels)+' and ALPHA_H')
 
     # Return "adjusted" params
     if isdict==True:
@@ -174,7 +174,7 @@ class AtmodModel(object):
     coeffs : list
         List of coefficient arrays.
     labels : list
-        List of Payne labels.
+        List of Atmosnet labels.
 
     """
     
@@ -275,8 +275,8 @@ class AtmodModel(object):
     
     @classmethod
     def read(cls,mfile):
-        """ Read in a single Payne Model."""
-        coeffs, wavelength, labels, wavevac = load_payne_model(mfile)
+        """ Read in a single Atmosnet Model."""
+        coeffs, wavelength, labels, wavevac = load_atmosnet_model(mfile)
         return AtmosModel(coeffs, wavelength, labels, wavevac=wavevac)
 
         
@@ -297,63 +297,29 @@ class AtmosModelSet(object):
         # Make sure it's a list
         if type(models) is not list:
             models = [models]
-        # Check that the input is Payne models
+        # Check that the input is Atmosnet models
         if not isinstance(models[0],AtmosModel):
-            raise ValueError('Input must be list of Payne models')
+            raise ValueError('Input must be list of Atmosnet models')
             
         self.nmodel = len(models)
         self._data = models
-        wrarray = np.zeros((2,len(models)),np.float64)
-        disp = []
-        for i in range(len(models)):
-            wrarray[0,i] = np.min(models[i].dispersion)
-            wrarray[1,i] = np.max(models[i].dispersion)
-            disp += list(models[i].dispersion)
-        self._wrarray = wrarray
-        self._dispersion = np.array(disp)
-
-        self._wavevac = self._data[0]._wavevac
         self.npix = len(self._dispersion)
-        wr = np.zeros(2,np.float64)
-        wr[0] = np.min(self._dispersion)
-        wr[1] = np.max(self._dispersion)
-        self.wr = wr   # global wavelength range
         self.labels = self._data[0].labels
-        self._lsf = None
         
     
     def __call__(self,labels):
         """
-        Create the Payne model spectrum given the input label values.
+        Create the Atmosnet model spectrum given the input label values.
 
         Parameters
         ----------
         labels : list or array
             List or Array of input labels values to use.
-        spec : Spec1D object, optional
-            Observed spectrum to use for LSF convolution and wavelength array.  Default is to return
-            the full model spectrum with no convolution.
-        wr : list or array, optional
-            Two-element list or array giving the upper and lower wavelength ranges for the output
-            model spectrum.
-        rv : float, optional
-            Doppler shift to apply to the Payne model (in km/s).  Default is no Doppler shift.
-        vsini : float, optional
-            Rotational broadening to apply to the Payne model (in km/s).  Default is no rotational
-            broadening.
-        vmacro : float, optional
-            Extra Gaussian broadening to apply to Payne model (in km/s) for macroturbulence.
-            Default is no Gaussian broadening.
-        fluxonly : boolean, optional
-            Only return the flux array.  Default is to return a Spec1D object.
-        wave : numpy array, optional
-            Input wavelength array to use for the output Payne model.  Default is to use the
-            observed spectrum wavelengths.
 
         Returns
         -------
         mspec : numpy array or Spec1D object
-            The output model Payne spectrum.  If fluxonly=True then only the flux array is returned,
+            The output model Atmosnet spectrum.  If fluxonly=True then only the flux array is returned,
             otherwise a Spec1D object is returned.
 
         Example
@@ -381,12 +347,6 @@ class AtmosModelSet(object):
                 return out.flux
             return out
 
-        # Input wavelengths, create WR 
-        if wave is not None:
-            wr = [np.min(wave),np.max(wave)]
-            if rv is not None:
-                wr = [np.min([wr[0],wr[0]*(1+rv/cspeed)]), np.max([wr[1],wr[1]*(1+rv/cspeed)])]
-                
         # Only a subset of wavelenths requested
         if wr is not None:
             # Check that we have pixels in this range
@@ -427,35 +387,6 @@ class AtmosModelSet(object):
                 cnt += nspec1
             wavelength = self._dispersion.copy()
 
-        # Apply Vmacro broadening and Vsini broadening (km/s)
-        if (vmacro is not None) | (vsini is not None):
-            spectrum = utils.broaden(wavelength,spectrum,vgauss=vmacro,vsini=vsini)
-
-        # Interpolate onto a new wavelength scale
-        if (rv is not None and rv != 0.0) or wave is not None:
-            inspectrum = spectrum
-            inwave = wavelength
-            outwave = wavelength
-            
-            # Apply radial velocity to input wavelength scale
-            if (rv is not None and rv != 0.0):
-                inwave *= (1+rv/cspeed)
-
-            # Use WAVE for output wavelengths
-            if wave is not None:
-                # Currently this only handles 1D wavelength arrays                
-                outwave = wave.copy()
-                
-            # Do the interpolation
-            spectrum = interp1d(inwave,inspectrum,kind='cubic',bounds_error=False,
-                                fill_value=(np.nan,np.nan),assume_sorted=True)(outwave)
-            wavelength = outwave
-
-        # Return as spectrum object with wavelengths
-        if fluxonly is False:
-            mspec = Spec1D(spectrum,wave=wavelength,lsfsigma=None,instrument='Model')
-        else:
-            mspec = spectrum
                 
         return mspec   
 
@@ -463,7 +394,7 @@ class AtmosModelSet(object):
         self._data[index] = data
     
     def __getitem__(self,index):
-        # Return one of the Payne models in the set
+        # Return one of the Atmosnet models in the set
         return self._data[index]
 
     def __len__(self):
