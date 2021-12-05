@@ -22,6 +22,8 @@ import copy
 import logging
 import contextlib, io, sys
 import time
+import dill as pickle
+from . import utils
 try:
     import __builtin__ as builtins # Python 2
 except ImportError:
@@ -53,7 +55,7 @@ def load_model():
     """
 
     datadir = utils.datadir()
-    files = glob(datadir+'atmosnet_*.npz')
+    files = glob(datadir+'atmosnet_*.pkl')
     nfiles = len(files)
     if nfiles==0:
         raise Exception("No Atmosnet model files in "+datadir)
@@ -83,29 +85,39 @@ def load_atmosnet_model(mfile):
         raise ValueError(mfile+' not found')
 
     
-    # read in the weights and biases parameterizing a particular neural network. 
-    tmp = np.load(mfile)
-    w_array_0 = tmp["w_array_0"]
-    w_array_1 = tmp["w_array_1"]
-    w_array_2 = tmp["w_array_2"]
-    b_array_0 = tmp["b_array_0"]
-    b_array_1 = tmp["b_array_1"]
-    b_array_2 = tmp["b_array_2"]
-    x_min = tmp["x_min"]
-    x_max = tmp["x_max"]
-    if 'labels' in tmp.files:
-        labels = list(tmp["labels"])
-    else:
-        print('WARNING: No label array')
-        labels = [None] * w_array_0.shape[1]
-    coeffs = (w_array_0, w_array_1, w_array_2, b_array_0, b_array_1, b_array_2, x_min, x_max)
-    tmp.close()
-    return coeffs, labels
+    # read in the weights and biases parameterizing a particular neural network.
+    
+    #tmp = np.load(mfile)
+    #w_array_0 = tmp["w_array_0"]
+    #w_array_1 = tmp["w_array_1"]
+    #w_array_2 = tmp["w_array_2"]
+    #b_array_0 = tmp["b_array_0"]
+    #b_array_1 = tmp["b_array_1"]
+    #b_array_2 = tmp["b_array_2"]
+    #x_min = tmp["x_min"]
+    #x_max = tmp["x_max"]
+    #if 'labels' in tmp.files:
+    #    labels = list(tmp["labels"])
+    #else:
+    #    print('WARNING: No label array')
+    #    labels = [None] * w_array_0.shape[1]
+    #coeffs = (w_array_0, w_array_1, w_array_2, b_array_0, b_array_1, b_array_2, x_min, x_max)
+    #tmp.close()
+    #return coeffs, labels
 
-def load_models():
+    with open(mfile, 'rb') as f: 
+        data = pickle.load(f)
+    return data
+        
+def load_models(mtype='c3k'):
     """
     Load all Atmosnet models from the atmosnet data/ directory
     and return as a AtmosModel.
+
+    Parameters
+    ----------
+    mtype : str
+        Model type.  Currently only "c3k" is supported.
 
     Returns
     -------
@@ -119,11 +131,15 @@ def load_models():
 
     """    
     datadir = utils.datadir()
-    files = glob(datadir+'atmosnet_*.npz')
+    files = glob(datadir+'atmosnet_'+mtype+'*.pkl')
     nfiles = len(files)
     if nfiles==0:
-        raise Exception("No atmosnet model files in "+datadir)
-    return AtmosModel.read(files)
+        raise Exception("No "+mtype+" atmosnet model files in "+datadir)
+    models = []
+    for f in range(nfiles):
+        am = AtmosModel.read(files[f])
+        models.append(am)
+    return AtmosModelSet(models)
 
 def check_params(model,params):
     """ Check input fit or fixed parameters against Atmosnet model labels."""
@@ -165,7 +181,7 @@ def check_params(model,params):
         return params
 
 
-class AtmodModel(object):
+class AtmosModel(object):
     """
     A class to represent a model atmosphere Artificial Neural Network model.
 
@@ -174,20 +190,30 @@ class AtmodModel(object):
     coeffs : list
         List of coefficient arrays.
     labels : list
-        List of Atmosnet labels.
+        List of Atmosnet label names.
 
     """
     
-    def __init__(self,coeffs,labels):
+    def __init__(self,data):
         """ Initialize AtmosModel object. """
-        self._coeffs = coeffs
-        self.labels = list(labels)
-        self.ncol = 8
-        self.npix = 80
-        #self.npix = len(self._dispersion)
-
-
-    def __call__(self,labels):
+        if type(data) is list:
+            self.ncolumns = len(data)
+            self._data = data
+        else:
+            self.ncolumns = 1
+            self._data = list(data)
+        self.labels = self._data[0]['labels']
+        self.nlabels = len(self.labels)
+        self.npix = self._data[0]['w_array_2'].shape[0]
+        # Label ranges
+        ranges = np.zeros((self.nlabels,2),float)
+        training_labels = self._data[0]['training_labels']
+        for i in range(self.nlabels):
+            ranges[i,0] = np.min(training_labels[:,i])
+            ranges[i,1] = np.max(training_labels[:,i])
+        self.ranges = ranges
+        
+    def __call__(self,labels,column=None):
         """
         Create the model atmosphere given the input label values.
 
@@ -195,12 +221,13 @@ class AtmodModel(object):
         ----------
         labels : list or array
             List or Array of input labels values to use.
+        column : int
+            Only do a specific column.
 
         Returns
         -------
         model : numpy array
-            The output model atmosphere.
-
+            The output model atmosphere array.
 
         Example
         -------
@@ -213,19 +240,24 @@ class AtmodModel(object):
         if len(labels) != len(self.labels):
             raise ValueError('labels must have '+str(len(self.labels))+' elements')
 
-        '''
-        Predict the rest-frame spectrum (normalized) of a single star.
-        We input the scaled stellar labels (not in the original unit).
-        Each label ranges from -0.5 to 0.5
-        '''
-
-        # Loop over the columns
-        atmos = np.zeros((self.ncol,self.npix),float)
-        for i in range(self.ncol):
+        # Check the labels against the ranges
+        if self._check_labels(labels)==False:
+            raise ValueError('Labels are out of range.')
         
+        # Loop over the columns
+        if column is not None:
+            columns = [column]
+        else:
+            columns = np.arange(self.ncolumns)
+        atmos = np.zeros((len(columns),self.npix),float)
+        # Loop over the columns
+        for i,col in enumerate(columns):
+            data = self._data[col]
             # assuming your NN has two hidden layers.
-            w_array_0, w_array_1, w_array_2, b_array_0, b_array_1, b_array_2, x_min, x_max = self._coeffs
-            scaled_labels = (labels-x_min)/(x_max-x_min) - 0.5
+            x_min, x_max = data['x_min'],data['x_max']
+            w_array_0, w_array_1, w_array_2 = data['w_array_0'],data['w_array_1'],data['w_array_2']
+            b_array_0, b_array_1, b_array_2 = data['b_array_0'],data['b_array_1'],data['b_array_2']            
+            scaled_labels = (labels-x_min)/(x_max-x_min) - 0.5   # scale the labels
             inside = np.einsum('ij,j->i', w_array_0, scaled_labels) + b_array_0
             outside = np.einsum('ij,j->i', w_array_1, leaky_relu(inside)) + b_array_1
             model = np.einsum('ij,j->i', w_array_2, leaky_relu(outside)) + b_array_2
@@ -233,7 +265,13 @@ class AtmodModel(object):
 
         return atmos
 
-    
+    def _check_labels(self,labels):
+        """ Check labels against ranges."""
+        inside = True
+        for i in range(self.nlabels):
+            inside &= (labels[i]>=self.ranges[i,0]) & (labels[i]<=self.ranges[i,1])
+        return inside
+        
     def label_arrayize(self,labeldict):
         """
         Convert labels from a dictionary or numpy structured array to array.
@@ -276,9 +314,14 @@ class AtmodModel(object):
     @classmethod
     def read(cls,mfile):
         """ Read in a single Atmosnet Model."""
-        coeffs, wavelength, labels, wavevac = load_atmosnet_model(mfile)
-        return AtmosModel(coeffs, wavelength, labels, wavevac=wavevac)
+        data = load_atmosnet_model(mfile)
+        return AtmosModel(data)
 
+    def write(self,mfile):
+        """ Write out a single Atmosnet Model."""
+        with open(mfile, 'wb') as f:
+            pickle.dump(self._data, f)
+    
         
 class AtmosModelSet(object):
     """
@@ -293,34 +336,48 @@ class AtmosModelSet(object):
     """
     
     def __init__(self,models):
-        """ Initialize AtmosModel object. """
+        """ Initialize AtmosModelSet object. """
         # Make sure it's a list
         if type(models) is not list:
             models = [models]
         # Check that the input is Atmosnet models
         if not isinstance(models[0],AtmosModel):
-            raise ValueError('Input must be list of Atmosnet models')
+            raise ValueError('Input must be list of AtmosModel objects')
             
-        self.nmodel = len(models)
+        self.nmodels = len(models)
         self._data = models
-        self.npix = len(self._dispersion)
+        self.npix = self._data[0].npix
         self.labels = self._data[0].labels
+        self.nlabels = self._data[0].nlabels
+        self.ncolumns = self._data[0].ncolumns
+        self.npix = self._data[0].npix
+        # Label ranges
+        ranges = np.zeros((self.nlabels,2),float)
+        ranges[:,0] = np.inf
+        ranges[:,1] = -np.inf        
+        for i in range(self.nlabels):
+            for j in range(self.nmodels):
+                ranges[i,0] = np.minimum(ranges[i,0],self._data[j].ranges[i,0])
+                ranges[i,1] = np.maximum(ranges[i,1],self._data[j].ranges[i,1])
+        self.ranges = ranges
+
         
-    
-    def __call__(self,labels):
+    def __call__(self,labels,column=None):
         """
         Create the Atmosnet model spectrum given the input label values.
+
 
         Parameters
         ----------
         labels : list or array
             List or Array of input labels values to use.
+        column : int
+            Only do a specific column.
 
         Returns
         -------
-        mspec : numpy array or Spec1D object
-            The output model Atmosnet spectrum.  If fluxonly=True then only the flux array is returned,
-            otherwise a Spec1D object is returned.
+        model : numpy array
+            The output model atmosphere array.
 
         Example
         -------
@@ -330,66 +387,29 @@ class AtmosModelSet(object):
 
         """
 
-        
-        '''
-        Predict the rest-frame spectrum (normalized) of a single star.
-        We input the scaled stellar labels (not in the original unit).
-        Each label ranges from -0.5 to 0.5
-        '''
 
         if len(labels) != len(self.labels):
             raise ValueError('labels must have '+str(len(self.labels))+' elements')
 
-        # Prepare the spectrum
-        if spec is not None:
-            out = self.prepare(labels,spec=spec,rv=rv,vsini=vsini,vmacro=vmacro,wave=wave)
-            if fluxonly is True:
-                return out.flux
-            return out
+        # Get correct AtmosModel that covers this range
+        model = self.get_best_model(labels)
+        if model is None:
+            return None
 
-        # Only a subset of wavelenths requested
-        if wr is not None:
-            # Check that we have pixels in this range
-            lo, = np.where(self._dispersion >= wr[0])
-            hi, = np.where(self._dispersion <= wr[1])          
-            if (len(lo)==0) | (len(hi)==0):
-                raise Exception('No pixels between '+str(wr[0])+' and '+str(wr[1]))
-            # Get the chunks that we need
-            #gg, = np.where( (self._wrarray[0,:] >= wr[0]) & (self._wrarray[1,:] <= wr[1]) )
-            gg, = np.where( ((self._wrarray[1,:] >= wr[0]) & (self._wrarray[1,:] <= wr[1])) |
-                            ((self._wrarray[0,:] <= wr[1]) & (self._wrarray[0,:] >= wr[0])) )
-            ngg = len(gg)
-            npix = 0
-            for i in range(ngg):
-                npix += self._data[gg[i]].npix
-            spectrum = np.zeros(npix,np.float64)
-            wavelength = np.zeros(npix,np.float64)
-            cnt = 0
-            for i in range(ngg):
-                spec1 = self._data[gg[i]](labels,fluxonly=True)
-                nspec1 = len(spec1)
-                spectrum[cnt:cnt+nspec1] = spec1
-                wavelength[cnt:cnt+nspec1] = self._data[gg[i]].dispersion               
-                cnt += nspec1
-            # Now trim a final time
-            ggpix, = np.where( (wavelength >= wr[0]) & (wavelength <= wr[1]) )
-            wavelength = wavelength[ggpix]
-            spectrum = spectrum[ggpix]
+        return model(labels,column=column)
+ 
 
-        # all pixels
-        else:
-            spectrum = np.zeros(self.npix,np.float64)
-            cnt = 0
-            for i in range(self.nmodel):
-                spec1 = self._data[i](labels,fluxonly=True)
-                nspec1 = len(spec1)
-                spectrum[cnt:cnt+nspec1] = spec1
-                cnt += nspec1
-            wavelength = self._dispersion.copy()
-
-                
-        return mspec   
-
+    def get_best_model(self,labels):
+        """ This returns the first AtmosModel instance that has the right range."""
+        for m in self._data:
+            ranges = m.ranges
+            inside = True
+            for i in range(self.nlabels):
+                inside &= (labels[i]>=ranges[i,0]) & (labels[i]<=ranges[i,1])
+            if inside:
+                return m
+        return None
+    
     def __setitem__(self,index,data):
         self._data[index] = data
     
@@ -431,3 +451,8 @@ class AtmosModelSet(object):
             return m.dispersion[0]
         models.sort(key=minwave)
         return AtmosModelSet(models)
+    
+    #def write(self,mfile):
+    #    """ Write out a single Atmosnet Model."""
+    #    with open(mfile, 'wb') as f:
+    #        pickle.dump(self._data, f)
