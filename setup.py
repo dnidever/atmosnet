@@ -6,7 +6,7 @@ from setuptools import setup, find_packages
 setup(name='atmosnet',
       version='1.0.0',
       description='ANN trained on model atmospheres',
-      author='David Nidever',
+      author='David Nidever, Yuan-Sen Ting',
       author_email='dnidever@montana.edu',
       url='https://github.com/dnidever/atmosnet',
       packages=find_packages(exclude=["tests"]),
