@@ -18,8 +18,6 @@ import warnings
 from glob import glob
 from scipy.interpolate import interp1d
 from dlnpyutils import (utils as dln, bindata, astro)
-from .spec1d import Spec1D
-from . import utils
 import copy
 import logging
 import contextlib, io, sys
@@ -36,7 +34,7 @@ warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 cspeed = 2.99792458e5  # speed of light in km/s
 
 # Get print function to be used locally, allows for easy logging
-print = utils.getprintfunc() 
+#print = utils.getprintfunc() 
 
     
 def leaky_relu(z):
@@ -95,24 +93,14 @@ def load_payne_model(mfile):
     b_array_2 = tmp["b_array_2"]
     x_min = tmp["x_min"]
     x_max = tmp["x_max"]
-    if 'wavelength' in tmp.files:
-        wavelength = tmp["wavelength"]
-    else:
-        print('WARNING: No wavelength array')
-        wavelength = np.arange(w_array_2.shape[0]).astype(np.float64)  # dummy wavelengths        
     if 'labels' in tmp.files:
         labels = list(tmp["labels"])
     else:
         print('WARNING: No label array')
         labels = [None] * w_array_0.shape[1]
-    if 'wavevac' in tmp.files:
-        wavevac = bool(tmp["wavevac"])
-    else:
-        print('WARNING: No wavevac')
-        wavevac = False
     coeffs = (w_array_0, w_array_1, w_array_2, b_array_0, b_array_1, b_array_2, x_min, x_max)
     tmp.close()
-    return coeffs, wavelength, labels, wavevac
+    return coeffs, labels
 
 def load_models():
     """
