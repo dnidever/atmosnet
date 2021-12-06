@@ -135,6 +135,8 @@ def load_models(mtype='c3k'):
     nfiles = len(files)
     if nfiles==0:
         raise Exception("No "+mtype+" atmosnet model files in "+datadir)
+    si = np.argsort(files)
+    files = list(np.array(files)[si])
     models = []
     for f in range(nfiles):
         am = AtmosModel.read(files[f])
@@ -214,51 +216,114 @@ def make_header(labels,abu=None):
     # 2.81685925E-02   1995.0 2.816E-02 1.999E+04 1.199E-05 1.919E-04 2.000E+05 0.000E+00 0.000E+00 8.548E+05
     # 3.41101002E-02   1995.0 3.410E-02 2.374E+04 1.463E-05 2.043E-04 2.000E+05 0.000E+00 0.000E+00 7.602E+05
 
+    teff = labels[0]
+    logg = labels[1]
+    feh = labels[2]
+    
+    # solar abundances
+    # first two are Teff and logg
+    # last two are Hydrogen and Helium
+    abu = np.array([ teff, logg, \
+                     -10.99, -10.66,  -9.34,  -3.61,  -4.21,\
+                     -3.35,  -7.48,  -4.11,  -5.80,  -4.44,\
+                     -5.59,  -4.53,  -6.63,  -4.92,  -6.54,\
+                     -5.64,  -7.01,  -5.70,  -8.89,  -7.09,\
+                     -8.11,  -6.40,  -6.61,  -4.54,  -7.05,\
+                     -5.82,  -7.85,  -7.48,  -9.00,  -8.39,\
+                     -9.74,  -8.70,  -9.50,  -8.79,  -9.52,\
+                     -9.17,  -9.83,  -9.46, -10.58, -10.16,\
+                     -20.00, -10.29, -11.13, -10.47, -11.10,\
+                     -10.33, -11.24, -10.00, -11.03,  -9.86,\
+                     -10.49,  -9.80, -10.96,  -9.86, -10.94,\
+                     -10.46, -11.32, -10.62, -20.00, -11.08,\
+                     -11.52, -10.97, -11.74, -10.94, -11.56,\
+                     -11.12, -11.94, -11.20, -11.94, -11.19,\
+                     -12.16, -11.19, -11.78, -10.64, -10.66,\
+                     -10.42, -11.12, -10.87, -11.14, -10.29,\
+                     -11.39, -20.00, -20.00, -20.00, -20.00,\
+                     -20.00, -20.00, -12.02, -20.00, -12.58,\
+                     -20.00, -20.00, -20.00, -20.00, -20.00,\
+                     -20.00, -20.00])
+
+    # scale global metallicity
+    abu[2:] += feh
+
+    # renormalize Hydrogen such that X+Y+Z=1
+    solar_He = 0.07837
+    renormed_H = 1. - solar_He - np.sum(10.**abu[2:],axis=0)
+
+    # make input string
+    abu0s = np.copy(abu).astype("str")
+    abu2s = np.copy(abu).astype("str")
+    abu3s = np.copy(abu).astype("str")
+    abu4s = np.copy(abu).astype("str")
+    
+    # loop over all entries
+    for p1 in range(abu.shape[0]):
+        # make it to string
+        abu0s[p1] = '' + "%.0f" % abu[p1]
+        abu2s[p1] = ' ' + "%.2f" % abu[p1]
+        abu3s[p1] = ' ' + "%.3f" % abu[p1]
+        abu4s[p1] = '' + "%.4f" % abu[p1]
+
+        # make sure it is the right Kurucz readable format
+        if abu[p1] <= -9.995:
+            abu2s[p1] = abu2s[p1][1:]
+        if abu[p1] < -9.9995:
+            abu3s[p1] = abu3s[p1][1:]
+
+    # transform into text
+    renormed_H_5s = "%.5f" % renormed_H
+
+    ### include He ####
+    solar_He_5s = "%.5f" % solar_He
+
+            
     # Construct the header
-    header = ['TEFF   ' +  labels[0] + '.  GRAVITY  ' + labels[1] + ' LTE \n',
+    header = ['TEFF   ' +  abu0s[0] + '.  GRAVITY  ' + abu4s[1] + ' LTE \n',
               'TITLE ATLAS12                                                                   \n',
               ' OPACITY IFOP 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 0 0 0\n',
               ' CONVECTION ON   1.25 TURBULENCE OFF  0.00  0.00  0.00  0.00\n',
               'ABUNDANCE SCALE   1.00000 ABUNDANCE CHANGE 1 ' + renormed_H_5s + ' 2 ' + solar_He_5s + '\n',
-              ' ABUNDANCE CHANGE  3 ' + abu[ 2] + '  4 ' + abu[ 3] + '  5 ' + abu[ 4] + '  6 ' + abu[ 5] + '  7 ' + abu[ 6] + '  8 ' + abu[ 7] + '\n',
-              ' ABUNDANCE CHANGE  9 ' + abu[ 8] + ' 10 ' + abu[ 9] + ' 11 ' + abu[10] + ' 12 ' + abu[11] + ' 13 ' + abu[12] + ' 14 ' + abu[13] + '\n',
-              ' ABUNDANCE CHANGE 15 ' + abu[14] + ' 16 ' + abu[15] + ' 17 ' + abu[16] + ' 18 ' + abu[17] + ' 19 ' + abu[18] + ' 20 ' + abu[19] + '\n',
-              ' ABUNDANCE CHANGE 21 ' + abu[20] + ' 22 ' + abu[21] + ' 23 ' + abu[22] + ' 24 ' + abu[23] + ' 25 ' + abu[24] + ' 26 ' + abu[25] + '\n',
-              ' ABUNDANCE CHANGE 27 ' + abu[26] + ' 28 ' + abu[27] + ' 29 ' + abu[28] + ' 30 ' + abu[29] + ' 31 ' + abu[30] + ' 32 ' + abu[31] + '\n',
-              ' ABUNDANCE CHANGE 33 ' + abu[32] + ' 34 ' + abu[33] + ' 35 ' + abu[34] + ' 36 ' + abu[35] + ' 37 ' + abu[36] + ' 38 ' + abu[37] + '\n',
-              ' ABUNDANCE CHANGE 39 ' + abu[38] + ' 40 ' + abu[39] + ' 41 ' + abu[40] + ' 42 ' + abu[41] + ' 43 ' + abu[42] + ' 44 ' + abu[43] + '\n',
-              ' ABUNDANCE CHANGE 45 ' + abu[44] + ' 46 ' + abu[45] + ' 47 ' + abu[46] + ' 48 ' + abu[47] + ' 49 ' + abu[48] + ' 50 ' + abu[49] + '\n',
-              ' ABUNDANCE CHANGE 51 ' + abu[50] + ' 52 ' + abu[51] + ' 53 ' + abu[52] + ' 54 ' + abu[53] + ' 55 ' + abu[54] + ' 56 ' + abu[55] + '\n',
-              ' ABUNDANCE CHANGE 57 ' + abu[56] + ' 58 ' + abu[57] + ' 59 ' + abu[58] + ' 60 ' + abu[59] + ' 61 ' + abu[60] + ' 62 ' + abu[61] + '\n',
-              ' ABUNDANCE CHANGE 63 ' + abu[62] + ' 64 ' + abu[63] + ' 65 ' + abu[64] + ' 66 ' + abu[65] + ' 67 ' + abu[66] + ' 68 ' + abu[67] + '\n',
-              ' ABUNDANCE CHANGE 69 ' + abu[68] + ' 70 ' + abu[69] + ' 71 ' + abu[70] + ' 72 ' + abu[71] + ' 73 ' + abu[72] + ' 74 ' + abu[73] + '\n',
-              ' ABUNDANCE CHANGE 75 ' + abu[74] + ' 76 ' + abu[75] + ' 77 ' + abu[76] + ' 78 ' + abu[77] + ' 79 ' + abu[78] + ' 80 ' + abu[79] + '\n',
-              ' ABUNDANCE CHANGE 81 ' + abu[80] + ' 82 ' + abu[81] + ' 83 ' + abu[82] + ' 84 ' + abu[83] + ' 85 ' + abu[84] + ' 86 ' + abu[85] + '\n',
-              ' ABUNDANCE CHANGE 87 ' + abu[86] + ' 88 ' + abu[87] + ' 89 ' + abu[88] + ' 90 ' + abu[89] + ' 91 ' + abu[90] + ' 92 ' + abu[91] + '\n',
-              ' ABUNDANCE CHANGE 93 ' + abu[92] + ' 94 ' + abu[93] + ' 95 ' + abu[94] + ' 96 ' + abu[95] + ' 97 ' + abu[96] + ' 98 ' + abu[97] + '\n',   
-              ' ABUNDANCE CHANGE 99 ' + abu[98] + '\n',
+              ' ABUNDANCE CHANGE  3 ' + abu2s[ 2] + '  4 ' + abu2s[ 3] + '  5 ' + abu2s[ 4] + '  6 ' + abu2s[ 5] + '  7 ' + abu2s[ 6] + '  8 ' + abu2s[ 7] + '\n',
+              ' ABUNDANCE CHANGE  9 ' + abu2s[ 8] + ' 10 ' + abu2s[ 9] + ' 11 ' + abu2s[10] + ' 12 ' + abu2s[11] + ' 13 ' + abu2s[12] + ' 14 ' + abu2s[13] + '\n',
+              ' ABUNDANCE CHANGE 15 ' + abu2s[14] + ' 16 ' + abu2s[15] + ' 17 ' + abu2s[16] + ' 18 ' + abu2s[17] + ' 19 ' + abu2s[18] + ' 20 ' + abu2s[19] + '\n',
+              ' ABUNDANCE CHANGE 21 ' + abu2s[20] + ' 22 ' + abu2s[21] + ' 23 ' + abu2s[22] + ' 24 ' + abu2s[23] + ' 25 ' + abu2s[24] + ' 26 ' + abu2s[25] + '\n',
+              ' ABUNDANCE CHANGE 27 ' + abu2s[26] + ' 28 ' + abu2s[27] + ' 29 ' + abu2s[28] + ' 30 ' + abu2s[29] + ' 31 ' + abu2s[30] + ' 32 ' + abu2s[31] + '\n',
+              ' ABUNDANCE CHANGE 33 ' + abu2s[32] + ' 34 ' + abu2s[33] + ' 35 ' + abu2s[34] + ' 36 ' + abu2s[35] + ' 37 ' + abu2s[36] + ' 38 ' + abu2s[37] + '\n',
+              ' ABUNDANCE CHANGE 39 ' + abu2s[38] + ' 40 ' + abu2s[39] + ' 41 ' + abu2s[40] + ' 42 ' + abu2s[41] + ' 43 ' + abu2s[42] + ' 44 ' + abu2s[43] + '\n',
+              ' ABUNDANCE CHANGE 45 ' + abu2s[44] + ' 46 ' + abu2s[45] + ' 47 ' + abu2s[46] + ' 48 ' + abu2s[47] + ' 49 ' + abu2s[48] + ' 50 ' + abu2s[49] + '\n',
+              ' ABUNDANCE CHANGE 51 ' + abu2s[50] + ' 52 ' + abu2s[51] + ' 53 ' + abu2s[52] + ' 54 ' + abu2s[53] + ' 55 ' + abu2s[54] + ' 56 ' + abu2s[55] + '\n',
+              ' ABUNDANCE CHANGE 57 ' + abu2s[56] + ' 58 ' + abu2s[57] + ' 59 ' + abu2s[58] + ' 60 ' + abu2s[59] + ' 61 ' + abu2s[60] + ' 62 ' + abu2s[61] + '\n',
+              ' ABUNDANCE CHANGE 63 ' + abu2s[62] + ' 64 ' + abu2s[63] + ' 65 ' + abu2s[64] + ' 66 ' + abu2s[65] + ' 67 ' + abu2s[66] + ' 68 ' + abu2s[67] + '\n',
+              ' ABUNDANCE CHANGE 69 ' + abu2s[68] + ' 70 ' + abu2s[69] + ' 71 ' + abu2s[70] + ' 72 ' + abu2s[71] + ' 73 ' + abu2s[72] + ' 74 ' + abu2s[73] + '\n',
+              ' ABUNDANCE CHANGE 75 ' + abu2s[74] + ' 76 ' + abu2s[75] + ' 77 ' + abu2s[76] + ' 78 ' + abu2s[77] + ' 79 ' + abu2s[78] + ' 80 ' + abu2s[79] + '\n',
+              ' ABUNDANCE CHANGE 81 ' + abu2s[80] + ' 82 ' + abu2s[81] + ' 83 ' + abu2s[82] + ' 84 ' + abu2s[83] + ' 85 ' + abu2s[84] + ' 86 ' + abu2s[85] + '\n',
+              ' ABUNDANCE CHANGE 87 ' + abu2s[86] + ' 88 ' + abu2s[87] + ' 89 ' + abu2s[88] + ' 90 ' + abu2s[89] + ' 91 ' + abu2s[90] + ' 92 ' + abu2s[91] + '\n',
+              ' ABUNDANCE CHANGE 93 ' + abu2s[92] + ' 94 ' + abu2s[93] + ' 95 ' + abu2s[94] + ' 96 ' + abu2s[95] + ' 97 ' + abu2s[96] + ' 98 ' + abu2s[97] + '\n',   
+              ' ABUNDANCE CHANGE 99 ' + abu2s[98] + '\n',
               ' ABUNDANCE TABLE\n',
               '    1H   ' + renormed_H_5s + '0       2He  ' + solar_He_5s + '0\n',
-              '    3Li' + abu3[ 2] + ' 0.000    4Be' + abu3[ 3] + ' 0.000    5B ' + abu3[ 4] + ' 0.000    6C ' + abu3[ 5] + ' 0.000    7N ' + abu3[ 6] + ' 0.000\n',
-              '    8O ' + abu3[ 7] + ' 0.000    9F ' + abu3[ 8] + ' 0.000   10Ne' + abu3[ 9] + ' 0.000   11Na' + abu3[10] + ' 0.000   12Mg' + abu3[11] + ' 0.000\n',
-              '   13Al' + abu3[12] + ' 0.000   14Si' + abu3[13] + ' 0.000   15P ' + abu3[14] + ' 0.000   16S ' + abu3[15] + ' 0.000   17Cl' + abu3[16] + ' 0.000\n',
-              '   18Ar' + abu3[17] + ' 0.000   19K ' + abu3[18] + ' 0.000   20Ca' + abu3[19] + ' 0.000   21Sc' + abu3[20] + ' 0.000   22Ti' + abu3[21] + ' 0.000\n',
-              '   23V ' + abu3[22] + ' 0.000   24Cr' + abu3[23] + ' 0.000   25Mn' + abu3[24] + ' 0.000   26Fe' + abu3[25] + ' 0.000   27Co' + abu3[26] + ' 0.000\n',
-              '   28Ni' + abu3[27] + ' 0.000   29Cu' + abu3[28] + ' 0.000   30Zn' + abu3[29] + ' 0.000   31Ga' + abu3[30] + ' 0.000   32Ge' + abu3[31] + ' 0.000\n',
-              '   33As' + abu3[32] + ' 0.000   34Se' + abu3[33] + ' 0.000   35Br' + abu3[34] + ' 0.000   36Kr' + abu3[35] + ' 0.000   37Rb' + abu3[36] + ' 0.000\n',
-              '   38Sr' + abu3[37] + ' 0.000   39Y ' + abu3[38] + ' 0.000   40Zr' + abu3[39] + ' 0.000   41Nb' + abu3[40] + ' 0.000   42Mo' + abu3[41] + ' 0.000\n',
-              '   43Tc' + abu3[42] + ' 0.000   44Ru' + abu3[43] + ' 0.000   45Rh' + abu3[44] + ' 0.000   46Pd' + abu3[45] + ' 0.000   47Ag' + abu3[46] + ' 0.000\n',
-              '   48Cd' + abu3[47] + ' 0.000   49In' + abu3[48] + ' 0.000   50Sn' + abu3[49] + ' 0.000   51Sb' + abu3[50] + ' 0.000   52Te' + abu3[51] + ' 0.000\n',
-              '   53I ' + abu3[52] + ' 0.000   54Xe' + abu3[53] + ' 0.000   55Cs' + abu3[54] + ' 0.000   56Ba' + abu3[55] + ' 0.000   57La' + abu3[56] + ' 0.000\n',
-              '   58Ce' + abu3[57] + ' 0.000   59Pr' + abu3[58] + ' 0.000   60Nd' + abu3[59] + ' 0.000   61Pm' + abu3[60] + ' 0.000   62Sm' + abu3[61] + ' 0.000\n',
-              '   63Eu' + abu3[62] + ' 0.000   64Gd' + abu3[63] + ' 0.000   65Tb' + abu3[64] + ' 0.000   66Dy' + abu3[65] + ' 0.000   67Ho' + abu3[66] + ' 0.000\n',
-              '   68Er' + abu3[67] + ' 0.000   69Tm' + abu3[68] + ' 0.000   70Yb' + abu3[69] + ' 0.000   71Lu' + abu3[70] + ' 0.000   72Hf' + abu3[71] + ' 0.000\n',
-              '   73Ta' + abu3[72] + ' 0.000   74W ' + abu3[73] + ' 0.000   75Re' + abu3[74] + ' 0.000   76Os' + abu3[75] + ' 0.000   77Ir' + abu3[76] + ' 0.000\n',
-              '   78Pt' + abu3[77] + ' 0.000   79Au' + abu3[78] + ' 0.000   80Hg' + abu3[79] + ' 0.000   81Tl' + abu3[80] + ' 0.000   82Pb' + abu3[81] + ' 0.000\n',
-              '   83Bi' + abu3[82] + ' 0.000   84Po' + abu3[83] + ' 0.000   85At' + abu3[84] + ' 0.000   86Rn' + abu3[85] + ' 0.000   87Fr' + abu3[86] + ' 0.000\n',
-              '   88Ra' + abu3[87] + ' 0.000   89Ac' + abu3[88] + ' 0.000   90Th' + abu3[89] + ' 0.000   91Pa' + abu3[90] + ' 0.000   92U ' + abu3[91] + ' 0.000\n',
-              '   93NP' + abu3[92] + ' 0.000   94Pu' + abu3[93] + ' 0.000   95Am' + abu3[94] + ' 0.000   96Cm' + abu3[95] + ' 0.000   97Bk' + abu3[96] + ' 0.000\n',
-              '   98Cf' + abu3[97] + ' 0.000   99Es' + abu3[98] + ' 0.000\n',
+              '    3Li' + abu3s[ 2] + ' 0.000    4Be' + abu3s[ 3] + ' 0.000    5B ' + abu3s[ 4] + ' 0.000    6C ' + abu3s[ 5] + ' 0.000    7N ' + abu3s[ 6] + ' 0.000\n',
+              '    8O ' + abu3s[ 7] + ' 0.000    9F ' + abu3s[ 8] + ' 0.000   10Ne' + abu3s[ 9] + ' 0.000   11Na' + abu3s[10] + ' 0.000   12Mg' + abu3s[11] + ' 0.000\n',
+              '   13Al' + abu3s[12] + ' 0.000   14Si' + abu3s[13] + ' 0.000   15P ' + abu3s[14] + ' 0.000   16S ' + abu3s[15] + ' 0.000   17Cl' + abu3s[16] + ' 0.000\n',
+              '   18Ar' + abu3s[17] + ' 0.000   19K ' + abu3s[18] + ' 0.000   20Ca' + abu3s[19] + ' 0.000   21Sc' + abu3s[20] + ' 0.000   22Ti' + abu3s[21] + ' 0.000\n',
+              '   23V ' + abu3s[22] + ' 0.000   24Cr' + abu3s[23] + ' 0.000   25Mn' + abu3s[24] + ' 0.000   26Fe' + abu3s[25] + ' 0.000   27Co' + abu3s[26] + ' 0.000\n',
+              '   28Ni' + abu3s[27] + ' 0.000   29Cu' + abu3s[28] + ' 0.000   30Zn' + abu3s[29] + ' 0.000   31Ga' + abu3s[30] + ' 0.000   32Ge' + abu3s[31] + ' 0.000\n',
+              '   33As' + abu3s[32] + ' 0.000   34Se' + abu3s[33] + ' 0.000   35Br' + abu3s[34] + ' 0.000   36Kr' + abu3s[35] + ' 0.000   37Rb' + abu3s[36] + ' 0.000\n',
+              '   38Sr' + abu3s[37] + ' 0.000   39Y ' + abu3s[38] + ' 0.000   40Zr' + abu3s[39] + ' 0.000   41Nb' + abu3s[40] + ' 0.000   42Mo' + abu3s[41] + ' 0.000\n',
+              '   43Tc' + abu3s[42] + ' 0.000   44Ru' + abu3s[43] + ' 0.000   45Rh' + abu3s[44] + ' 0.000   46Pd' + abu3s[45] + ' 0.000   47Ag' + abu3s[46] + ' 0.000\n',
+              '   48Cd' + abu3s[47] + ' 0.000   49In' + abu3s[48] + ' 0.000   50Sn' + abu3s[49] + ' 0.000   51Sb' + abu3s[50] + ' 0.000   52Te' + abu3s[51] + ' 0.000\n',
+              '   53I ' + abu3s[52] + ' 0.000   54Xe' + abu3s[53] + ' 0.000   55Cs' + abu3s[54] + ' 0.000   56Ba' + abu3s[55] + ' 0.000   57La' + abu3s[56] + ' 0.000\n',
+              '   58Ce' + abu3s[57] + ' 0.000   59Pr' + abu3s[58] + ' 0.000   60Nd' + abu3s[59] + ' 0.000   61Pm' + abu3s[60] + ' 0.000   62Sm' + abu3s[61] + ' 0.000\n',
+              '   63Eu' + abu3s[62] + ' 0.000   64Gd' + abu3s[63] + ' 0.000   65Tb' + abu3s[64] + ' 0.000   66Dy' + abu3s[65] + ' 0.000   67Ho' + abu3s[66] + ' 0.000\n',
+              '   68Er' + abu3s[67] + ' 0.000   69Tm' + abu3s[68] + ' 0.000   70Yb' + abu3s[69] + ' 0.000   71Lu' + abu3s[70] + ' 0.000   72Hf' + abu3s[71] + ' 0.000\n',
+              '   73Ta' + abu3s[72] + ' 0.000   74W ' + abu3s[73] + ' 0.000   75Re' + abu3s[74] + ' 0.000   76Os' + abu3s[75] + ' 0.000   77Ir' + abu3s[76] + ' 0.000\n',
+              '   78Pt' + abu3s[77] + ' 0.000   79Au' + abu3s[78] + ' 0.000   80Hg' + abu3s[79] + ' 0.000   81Tl' + abu3s[80] + ' 0.000   82Pb' + abu3s[81] + ' 0.000\n',
+              '   83Bi' + abu3s[82] + ' 0.000   84Po' + abu3s[83] + ' 0.000   85At' + abu3s[84] + ' 0.000   86Rn' + abu3s[85] + ' 0.000   87Fr' + abu3s[86] + ' 0.000\n',
+              '   88Ra' + abu3s[87] + ' 0.000   89Ac' + abu3s[88] + ' 0.000   90Th' + abu3s[89] + ' 0.000   91Pa' + abu3s[90] + ' 0.000   92U ' + abu3s[91] + ' 0.000\n',
+              '   93NP' + abu3s[92] + ' 0.000   94Pu' + abu3s[93] + ' 0.000   95Am' + abu3s[94] + ' 0.000   96Cm' + abu3s[95] + ' 0.000   97Bk' + abu3s[96] + ' 0.000\n',
+              '   98Cf' + abu3s[97] + ' 0.000   99Es' + abu3s[98] + ' 0.000\n',
               'READ DECK6 72 RHOX,T,P,XNE,ABROSS,ACCRAD,VTURB, FLXCNV,VCONV,VELSND\n']
     return header
 
@@ -289,13 +354,16 @@ class AtmosModel(object):
         self.nlabels = len(self.labels)
         self.npix = self._data[0]['w_array_2'].shape[0]
         # Label ranges
-        ranges = np.zeros((self.nlabels,2),float)
-        training_labels = self._data[0]['training_labels']
-        for i in range(self.nlabels):
-            ranges[i,0] = np.min(training_labels[:,i])
-            ranges[i,1] = np.max(training_labels[:,i])
-        self.ranges = ranges
-        
+        if 'ranges' not in self._data[0].keys():
+            ranges = np.zeros((self.nlabels,2),float)
+            training_labels = self._data[0]['training_labels']
+            for i in range(self.nlabels):
+                ranges[i,0] = np.min(training_labels[:,i])
+                ranges[i,1] = np.max(training_labels[:,i])
+            self.ranges = ranges
+        else:
+            self.ranges = self._data[0]['ranges']
+            
     def __call__(self,labels,column=None):
         """
         Create the model atmosphere given the input label values.
@@ -390,6 +458,10 @@ class AtmosModel(object):
             arr[i] = val
         return arr
 
+    def header(self,labels):
+        """ Make the Kurucz model atmosphere header."""
+        return make_header(labels)
+    
     def tofile(self,mfile):
         """ Write the model to a file."""
         pass
@@ -522,9 +594,32 @@ class AtmosModelSet(object):
         else:
             raise StopIteration
 
-    def tofile(self,mfile):
+    def header(self,labels):
+        """ Make the Kurucz model atmosphere header."""
+        return make_header(labels)
+        
+    def tofile(self,labels,mfile):
         """ Write the model to a file."""
-        pass
+
+        data = self(labels)
+        header = self.header(labels)
+
+        # 1.75437086E-02   1995.0 1.754E-02 1.300E+04 7.601E-06 1.708E-04 2.000E+05 0.000E+00 0.000E+00 1.177E+06
+        # 2.26928500E-02   1995.0 2.269E-02 1.644E+04 9.674E-06 1.805E-04 2.000E+05 0.000E+00 0.000E+00 9.849E+05
+        # 2.81685925E-02   1995.0 2.816E-02 1.999E+04 1.199E-05 1.919E-04 2.000E+05 0.000E+00 0.000E+00 8.548E+05
+        # 3.41101002E-02   1995.0 3.410E-02 2.374E+04 1.463E-05 2.043E-04 2.000E+05 0.000E+00 0.000E+00 7.602E+05
+        ncols,ndata = data.shape
+        datalines = []
+        for i in range(ndata):
+            newline = ' %14.8E   %6.1f %9.3E %9.3E %9.3E %9.3E %9.3E %9.3E 0.000E+00 0.000E+00\n' % tuple(data[:,i])
+            datalines.append(newline)
+        lines = header + datalines
+        
+        # write text file
+        if os.path.exists(mfile): os.remove(mfile)
+        f = open(mfile, 'w')
+        f.writelines(lines)
+        f.close()
         
     def copy(self):
         """ Make a copy of the AtmosModelSet."""
