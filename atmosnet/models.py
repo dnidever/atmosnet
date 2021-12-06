@@ -263,6 +263,9 @@ class AtmosModel(object):
             model = np.einsum('ij,j->i', w_array_2, leaky_relu(outside)) + b_array_2
             atmos[i,:] = model
 
+        # Exponentiate, we originally took the log of the values
+        atmos = np.exp(atmos)
+            
         return atmos
 
     def _check_labels(self,labels):
@@ -386,7 +389,6 @@ class AtmosModelSet(object):
              mspec = model(labels)
 
         """
-
 
         if len(labels) != len(self.labels):
             raise ValueError('labels must have '+str(len(self.labels))+' elements')
