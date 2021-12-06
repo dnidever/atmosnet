@@ -11,6 +11,6 @@ setup(name='atmosnet',
       url='https://github.com/dnidever/atmosnet',
       packages=find_packages(exclude=["tests"]),
       #scripts=['bin/doppler'],
-      install_requires=['numpy','astropy(>=4.0)','scipy','dlnpyutils(>=1.0.3)'],
+      install_requires=['numpy','astropy(>=4.0)','scipy','dlnpyutils(>=1.0.3)','dill'],
       include_package_data=True,
 )
