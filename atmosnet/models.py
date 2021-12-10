@@ -18,6 +18,7 @@ import warnings
 from glob import glob
 from scipy.interpolate import interp1d
 from dlnpyutils import (utils as dln, bindata, astro)
+from scipy.integrate import trapz
 import copy
 import logging
 import contextlib, io, sys
@@ -251,19 +252,9 @@ def check_params(model,params):
         
     # Loop over parameters
     for i,par in enumerate(params):
-        # replace VROT with VSINI        
-        if par=='VROT' and 'VSINI' in model.labels:
-            print('Replacing VROT -> VSINI')
-            params[i] = 'VSINI'
-            par = 'VSINI'
-        # replace VMICRO with VTURB            
-        elif par=='VMICRO' and 'VTURB' in model.labels:
-            print('Replacing VMICRO -> VTURB')
-            params[i] = 'VTURB'
-            par = 'VTURB'
         # check against model labels
         if (par != 'ALPHA_H') and (not par in model.labels):
-            raise ValueError(par+' NOT a Atmosnet label. Available labels are '+','.join(model.labels)+' and ALPHA_H')
+            raise ValueError(par+' NOT a AtmosNet label. Available labels are '+','.join(model.labels)+' and ALPHA_H')
 
     # Return "adjusted" params
     if isdict==True:
@@ -445,7 +436,7 @@ class Atmosphere(object):
     # Mass depth variable RHOX=Integral_0^x rho(x) dx, the temperature T, the
     # gas pressure P, the electron number density Ne, the Rossleand mean
     # absorption coefficient kappa_Ross, the radiative acceleration g_rad due
-    # to the absorption of radiation, and the microturbulent velocity zeta.
+    # to the absorption of radiation, and the microturbulent velocity zeta (cm/s)
     # used for the line opacity.
     # In the last row, PRADK is the radiation pressure at the surface.
     # There are more details about the rows in Kurucz (1970) and Castelli (1988).
@@ -458,9 +449,10 @@ class Atmosphere(object):
         self.header = header
         self.ncols = self.data.shape[1]
         self.ndepths = self.data.shape[0]
-        self.labels = labels
+        self.labels = labels   # [teff, logg, feh, vmicro]
         self.abu = abu
         self.mtype = mtype
+        self._tauross = None
 
     def __repr__(self):
         out = self.__class__.__name__ + '('
@@ -479,9 +471,14 @@ class Atmosphere(object):
         return self.labels[1]
 
     @property
+    def feh(self):
+        """ Return metallicity."""
+        return self.labels[2]
+    
+    @property
     def vmicro(self):
         """ Return vmicro."""
-        return self.labels[2]
+        return self.microvel[0]  # take it from the data itself
 
     # The next 8 properties are the actual atmosphere data
     # RHOX,T,P,XNE,ABROSS,ACCRAD,VTURB, FLXCNV
@@ -521,7 +518,21 @@ class Atmosphere(object):
         """ Return microturbulent velocity (meters/second) versus depth."""
         return self.data[:,6]
 
-
+    @property
+    def tauross(self):
+        """ Return tauross, the Rosseland optical depth."""
+        if self._tauross is None:
+            self._tauross = self._calc_tauross()
+        return self._tauross
+    
+    def _calc_tauross(self):
+        """ Calculate tauross."""
+        tauross = np.zeros(self.ndepths,float)
+        tauross[0] = self.mass[0]*self.abross[0]
+        for i in np.arange(1,self.ndepths):
+            tauross[i] = trapz(self.abross[0:i+1],self.mass[0:i+1])
+        return tauross
+            
     #The newer Kurucz/Castelli models have three additional columns which give
     #-the amount of flux transported by convection, (FLXCNV)
     #-the convective velocity (VCONV)
