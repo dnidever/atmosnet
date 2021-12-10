@@ -38,7 +38,97 @@ cspeed = 2.99792458e5  # speed of light in km/s
 # Get print function to be used locally, allows for easy logging
 #print = utils.getprintfunc() 
 
+def read_kurucz_model(modelfile):
+    """
+    Reads a Kurucz model atmospheres.
+    Copied from Carlos Allende-Prieto's synple package and modified.
+  
+    Parameters
+    ----------
+    modelfile: str
+      file name  
+  
+    Returns
+    -------
+    data : numpy array
+      Array with model atmosphere data.
+    header : list
+      Entire file header lines.
+    labels : list
+      List of [Teff, logg, vmicro].
+    abu : list
+      List of abundances.
+
+    Example
+    -------
     
+    data,header,labels,abu = read_kurucz_model(modelfile)
+  
+    """
+
+    f = open(modelfile,'r')
+    line = f.readline()
+    entries = line.split()
+    assert (entries[0] == 'TEFF' and entries[2] == 'GRAVITY'), 'Cannot find Teff and logg in the file header'
+    teff = float(entries[1])
+    logg = float(entries[3])
+
+    while entries[0] != 'ABUNDANCE':  
+        line = f.readline()
+        entries = line.split()
+
+    abu = []
+
+    if entries[1] == 'SCALE': 
+        scale = float(entries[2])
+    
+    while entries[0] == 'ABUNDANCE':
+        i = 0
+        for word in entries: 
+            if (word == 'CHANGE'): w = i
+            i = i + 1 
+        for i in range(int((len(entries)-w-1)/2)):
+            z = int(entries[w+1+2*i])
+            if (z == 1): nhntot = float(entries[w+2+2*i])
+            if (z < 3): abu.append(float(entries[w+2+2*i]) / nhntot) 
+            else: abu.append(scale*10.**(float(entries[w+2+2*i])) / nhntot)
+
+        line = f.readline()
+        entries = line.split() 
+
+    assert (entries[0] == 'READ'), 'I cannot find the header of the atmospheric table in the input Kurucz model'
+
+    nd = int(entries[2])
+    line1 = f.readline()
+    entries1 = line1.split()
+    line2 = f.readline()
+    entries2 = line2.split()
+    vmicro = float(entries2[6])/1e5
+    labels = [teff,logg,vmicro]
+
+    # Carlos removed the first two depths, why?
+    
+    # Get data
+    data = np.zeros((nd,len(entries2)),float)
+    data[0,:] = entries1
+    data[1,:] = entries2    
+    for i in range(nd-2):
+        line = f.readline()
+        entries = line.split()
+        data[i+2,:] = entries
+
+    # Get header
+    f.close()
+    header = []
+    with open(modelfile,'r') as f:
+        line = ''
+        while line.startswith('READ DECK')==False:
+            line = f.readline()
+            header.append(line)
+
+    return data, header, labels, abu
+
+
 def leaky_relu(z):
     '''
     This is the activation function used by default in all our neural networks.
@@ -182,7 +272,7 @@ def check_params(model,params):
     else:    
         return params
 
-def make_header(labels,abu=None):
+def make_header(labels,ndepths=80,abu=None):
     """
     Make Kurucz model atmosphere header
     """
@@ -324,11 +414,169 @@ def make_header(labels,abu=None):
               '   88Ra' + abu3s[87] + ' 0.000   89Ac' + abu3s[88] + ' 0.000   90Th' + abu3s[89] + ' 0.000   91Pa' + abu3s[90] + ' 0.000   92U ' + abu3s[91] + ' 0.000\n',
               '   93NP' + abu3s[92] + ' 0.000   94Pu' + abu3s[93] + ' 0.000   95Am' + abu3s[94] + ' 0.000   96Cm' + abu3s[95] + ' 0.000   97Bk' + abu3s[96] + ' 0.000\n',
               '   98Cf' + abu3s[97] + ' 0.000   99Es' + abu3s[98] + ' 0.000\n',
-              'READ DECK6 72 RHOX,T,P,XNE,ABROSS,ACCRAD,VTURB, FLXCNV,VCONV,VELSND\n']
+              'READ DECK6 '+str(ndepths)+' RHOX,T,P,XNE,ABROSS,ACCRAD,VTURB, FLXCNV,VCONV,VELSND\n']
     return header
 
-    
 
+class Atmosphere(object):
+    """
+    Single model atmosphere class.
+
+    """
+
+    # Kurucz model atmosphere.
+    # http://www.appstate.edu/~grayro/spectrum/spectrum276/node12.html
+    # The next 64 layers in this atmosphere model contain data needed by
+    # SPECTRUM for calculating the synthetic spectrum. The first layer
+    # represents the surface.
+    # -The first column is the mass depth.
+    # -The second column is the temperature, in kelvins, of the layer,
+    # -the third the gas pressure,
+    # -the fourth the electron density,
+    # -the fifth the Rosseland mean absorption coefficient,
+    # -the sixth the radiation pressure
+    # -the seventh the microturbulent velocity in meters/second.
+    # The newer Kurucz/Castelli models have three additional columns which give
+    # -the amount of flux transported by convection, (FLXCNV)
+    # -the convective velocity (VCONV)
+    # -the sound velocity (VELSND)
+
+    # From Castelli & Kurucz (1994), Appendix A
+    # Mass depth variable RHOX=Integral_0^x rho(x) dx, the temperature T, the
+    # gas pressure P, the electron number density Ne, the Rossleand mean
+    # absorption coefficient kappa_Ross, the radiative acceleration g_rad due
+    # to the absorption of radiation, and the microturbulent velocity zeta.
+    # used for the line opacity.
+    # In the last row, PRADK is the radiation pressure at the surface.
+    # There are more details about the rows in Kurucz (1970) and Castelli (1988).
+
+    # RHOX,T,P,XNE,ABROSS,ACCRAD,VTURB, FLXCNV
+    
+    def __init__(self,data,header,labels=None,abu=None,mtype='kurucz'):
+        """ Initialize Atmosphere object. """
+        self.data = data
+        self.header = header
+        self.ncols = self.data.shape[1]
+        self.ndepths = self.data.shape[0]
+        self.labels = labels
+        self.abu = abu
+        self.mtype = mtype
+
+    def __repr__(self):
+        out = self.__class__.__name__ + '('
+        out += 'Teff=%d, logg=%.2f, vmicro=%.2f, ndepths=%d)\n' % \
+               (self.labels[0],self.labels[1],self.labels[2],self.ndepths)
+        return out
+        
+    @property
+    def teff(self):
+        """ Return temperature."""
+        return self.labels[0]
+
+    @property
+    def logg(self):
+        """ Return logg."""
+        return self.labels[1]
+
+    @property
+    def vmicro(self):
+        """ Return vmicro."""
+        return self.labels[2]
+
+    # The next 8 properties are the actual atmosphere data
+    # RHOX,T,P,XNE,ABROSS,ACCRAD,VTURB, FLXCNV
+    
+    @property
+    def mass(self):
+        """ Return the mass data."""
+        return self.data[:,0]
+
+    @property
+    def temperature(self):
+        """ Return the temperature versus depth."""
+        return self.data[:,1]
+
+    @property
+    def pressure(self):
+        """ Return the pressure versus depth"""
+        return self.data[:,2]
+
+    @property
+    def edensity(self):
+        """ Return the electron number density versus depth."""
+        return self.data[:,3]
+    
+    @property
+    def abross(self):
+        """ Return Rosseland mean absorption coefficient versus depth."""
+        return self.data[:,4]
+
+    @property
+    def radacc(self):
+        """ Return radiative acceleration versus depth."""
+        return self.data[:,5]
+
+    @property
+    def microvel(self):
+        """ Return microturbulent velocity (meters/second) versus depth."""
+        return self.data[:,6]
+
+
+    #The newer Kurucz/Castelli models have three additional columns which give
+    #-the amount of flux transported by convection, (FLXCNV)
+    #-the convective velocity (VCONV)
+    #-the sound velocity (VELSND)
+    
+    @property
+    def fluxconv(self):
+        """ Return flux transported by convection, (FLXCNV) versus depth."""
+        return self.data[:,7]    
+    
+    
+    def copy(self):
+        """ Make a full copy of the Atmosphere object. """
+        return copy.deepcopy(self)
+    
+    @classmethod
+    def read(cls,mfile):
+        """ Read in a single Atmosphere file."""
+        data,header,labels,abu = read_kurucz_model(mfile)
+        return Atmosphere(data,header,labels,abu)
+
+    def write(self,mfile):
+        """ Write out a single Atmosphere Model."""
+
+        data = self.data
+        header = self.header
+
+        # 1.75437086E-02   1995.0 1.754E-02 1.300E+04 7.601E-06 1.708E-04 2.000E+05 0.000E+00 0.000E+00 1.177E+06
+        # 2.26928500E-02   1995.0 2.269E-02 1.644E+04 9.674E-06 1.805E-04 2.000E+05 0.000E+00 0.000E+00 9.849E+05
+        # 2.81685925E-02   1995.0 2.816E-02 1.999E+04 1.199E-05 1.919E-04 2.000E+05 0.000E+00 0.000E+00 8.548E+05
+        # 3.41101002E-02   1995.0 3.410E-02 2.374E+04 1.463E-05 2.043E-04 2.000E+05 0.000E+00 0.000E+00 7.602E+05
+        ndata,ncols = data.shape
+        datalines = []
+        for i in range(ndata):
+            if ncols==8:
+                newline = ' %14.8E   %6.1f %9.3E %9.3E %9.3E %9.3E %9.3E %9.3E 0.000E+00 0.000E+00\n' % tuple(data[i,:])
+            elif ncols==10:
+                newline = ' %14.8E   %6.1f %9.3E %9.3E %9.3E %9.3E %9.3E %9.3E %9.3E %9.3E\n' % tuple(data[i,:])
+            else:
+                raise ValueError('Only 8 or 10 columns supported')
+            datalines.append(newline)
+        lines = header + datalines
+
+        # Add the two tail lines
+        # In the last row, PRADK is the radiation pressure at the surface.
+        lines.append('PRADK 1.9978E-01\n')      # dummy value for now
+        lines.append('BEGIN                    ITERATION  15 COMPLETED\n')
+        
+        # write text file
+        if os.path.exists(mfile): os.remove(mfile)
+        f = open(mfile, 'w')
+        f.writelines(lines)
+        f.close()
+
+        
 class AtmosModel(object):
     """
     A class to represent a model atmosphere Artificial Neural Network model.
@@ -387,9 +635,13 @@ class AtmosModel(object):
              mspec = model(labels)
 
         """
+
+        # Dictionary input
+        if isinstance(labels,dict):
+            labels = self.mklabels(labels)  # convert dictionary to array of labels
         
-        if len(labels) != len(self.labels):
-            raise ValueError('labels must have '+str(len(self.labels))+' elements')
+        #if len(labels) != len(self.labels):
+        #    raise ValueError('labels must have '+str(len(self.labels))+' elements')
 
         # Check the labels against the ranges
         if self._check_labels(labels)==False:
@@ -400,7 +652,7 @@ class AtmosModel(object):
             columns = [column]
         else:
             columns = np.arange(self.ncolumns)
-        atmos = np.zeros((len(columns),self.npix),float)
+        atmos = np.zeros((self.npix,len(columns)),float)
         # Loop over the columns
         for i,col in enumerate(columns):
             data = self._data[col]
@@ -412,15 +664,18 @@ class AtmosModel(object):
             inside = np.einsum('ij,j->i', w_array_0, scaled_labels) + b_array_0
             outside = np.einsum('ij,j->i', w_array_1, leaky_relu(inside)) + b_array_1
             model = np.einsum('ij,j->i', w_array_2, leaky_relu(outside)) + b_array_2
-            atmos[i,:] = model
+            atmos[:,i] = model
 
         # Exponentiate, we originally took the log of the values after adding a small offset
         atmos = np.exp(atmos)
         atmos -= 1e-16
+
+        # Generate an Atmosphere object
+        header = self.header(labels)
+        atmlabels = [labels[0],labels[1],2.0]
+        atm = Atmosphere(atmos,header,atmlabels)
         
-        # output the header as well
-        
-        return atmos
+        return atm
 
     def _check_labels(self,labels):
         """ Check labels against ranges."""
@@ -428,7 +683,71 @@ class AtmosModel(object):
         for i in range(self.nlabels):
             inside &= (labels[i]>=self.ranges[i,0]) & (labels[i]<=self.ranges[i,1])
         return inside
+
+    def mklabels(self,inputs):
+        """
+        Convert input dictionary to labels.  Not all labels need to be specified.
+
+        Parameters
+        ----------
+        inputs : dict
+            Dictionary of label values. Not all labels need to be specified.
+            Must at least input TEFF, LOGG and FE_H.
+            Unspecified abundance labels will be determined from the inputs
+            (e.g. FE_H and ALPHA_H set elements) or default values.
+
+        Returns
+        -------
+        labels : numpy array
+            Array of label values.
+
+        Example
+        -------
+        .. code-block:: python
+
+             labels = model.mklabels(labeldict)
+
+        """
+
+        # This assumes ALL abundances are relative to H *not* FE!!!
         
+        params = dict((key.upper(), value) for (key, value) in inputs.items()) # all CAPS
+        nparams = len(params)
+
+        labelnames = np.char.array(self.labels)
+        
+        # Minimum required inputs, TEFF, LOGG, FE_H
+        minlabels = ['TEFF','LOGG','FE_H']
+        for f in minlabels:
+            if f not in params.keys():
+                raise ValueError(f+' is a required input parameter')
+
+        # Initializing the labels array
+        nlabels = len(self.labels)
+        labels = np.zeros(nlabels,float)
+        # Set X_H = FE_H
+        labels[labelnames.endswith('_H')] = params['FE_H']
+        # Vmicro/Vturb=2.0 km/s by default
+        labels[(labelnames=='VTURB') | (labelnames=='VMICRO')] = 2.0
+        
+        # Deal with alpha abundances
+        # Individual alpha elements will overwrite the mean alpha below     
+        # Make sure ALPHA_H is *not* one of the labels:
+        if 'ALPHA_H' not in self.labels:
+            if 'ALPHA_H' in params.keys():
+                alpha = params['ALPHA_H']
+                alphaelem = ['O','MG','SI','S','CA','TI']                
+                for k in range(len(alphaelem)):
+                    # Only set the value if it was found in self.labels
+                    labels[labelnames==alphaelem[k]+'_H'] = alpha
+                
+        # Loop over input parameters
+        for name in params.keys():
+            # Only set the value if it was found in self.labels
+            labels[labelnames==name] = params[name]
+            
+        return labels
+    
     def label_arrayize(self,labeldict):
         """
         Convert labels from a dictionary or numpy structured array to array.
@@ -483,6 +802,7 @@ class AtmosModel(object):
 
     def write(self,mfile):
         """ Write out a single Atmosnet Model."""
+        
         with open(mfile, 'wb') as f:
             pickle.dump(self._data, f)
     
@@ -528,7 +848,7 @@ class AtmosModelSet(object):
         
     def __call__(self,labels,column=None):
         """
-        Create the Atmosnet model spectrum given the input label values.
+        Create the Atmosnet model output given the input label values.
 
 
         Parameters
@@ -551,9 +871,13 @@ class AtmosModelSet(object):
 
         """
 
-        if len(labels) != len(self.labels):
-            raise ValueError('labels must have '+str(len(self.labels))+' elements')
+        #if len(labels) != len(self.labels):
+        #    raise ValueError('labels must have '+str(len(self.labels))+' elements')
 
+        # Dictionary input
+        if isinstance(labels,dict):
+            labels = self._data[0].mklabels(labels)  # convert dictionary to array of labels
+        
         # Get correct AtmosModel that covers this range
         model = self.get_best_model(labels)
         if model is None:
