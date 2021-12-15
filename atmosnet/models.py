@@ -104,13 +104,16 @@ def read_kurucz_model(modelfile):
     if scale==1.0:
         # check Fe and other abundances against solar values
         names,mass,solar_abu = utils.elements()
-        #solar_abu = np.array(solar_abu)
-        #solar_abu[2:] = np.log10(solar_abu[2:])+12.0
-        ratio_abu = np.array(abu)[2:82]/solar_abu[2:82]
+        ratio_abu = np.array(abu)[:82]/solar_abu[:82]
         # Not solar, get [Fe/H] from Fe
-        if np.abs(np.median(np.log10(ratio_abu)))>0.02:
-            feh = np.log10(ratio_abu[23])  # ratio for element 26
-        
+        if np.abs(np.median(np.log10(ratio_abu[2:])))>0.02:
+            #feh = np.log10(ratio_abu[23])  # ratio for element 26
+            # use most elements (non-alpha)
+            #  Fe depends on solar value used
+            ind = np.arange(82)
+            ind = np.delete(ind,[0,1,5,6,7,11,13,15,19,21,])
+            feh = np.median(np.log10(ratio_abu[ind]))
+            
     assert (entries[0] == 'READ'), 'I cannot find the header of the atmospheric table in the input Kurucz model'
 
     nd = int(entries[2])
@@ -280,6 +283,7 @@ def check_params(model,params):
 def make_header(labels,ndepths=80,abu=None,scale=1.0):
     """
     Make Kurucz model atmosphere header
+    abu : abundance in N(H) format (linear)
     """
 
     
@@ -314,34 +318,45 @@ def make_header(labels,ndepths=80,abu=None,scale=1.0):
     teff = labels[0]
     logg = labels[1]
     feh = labels[2]
+
+    # Use feh for scale
+    scale = 10**feh
     
     # solar abundances
     # first two are Teff and logg
     # last two are Hydrogen and Helium
-    abu = np.array([ teff, logg, \
-                     -10.99, -10.66,  -9.34,  -3.61,  -4.21,\
-                     -3.35,  -7.48,  -4.11,  -5.80,  -4.44,\
-                     -5.59,  -4.53,  -6.63,  -4.92,  -6.54,\
-                     -5.64,  -7.01,  -5.70,  -8.89,  -7.09,\
-                     -8.11,  -6.40,  -6.61,  -4.54,  -7.05,\
-                     -5.82,  -7.85,  -7.48,  -9.00,  -8.39,\
-                     -9.74,  -8.70,  -9.50,  -8.79,  -9.52,\
-                     -9.17,  -9.83,  -9.46, -10.58, -10.16,\
-                     -20.00, -10.29, -11.13, -10.47, -11.10,\
-                     -10.33, -11.24, -10.00, -11.03,  -9.86,\
-                     -10.49,  -9.80, -10.96,  -9.86, -10.94,\
-                     -10.46, -11.32, -10.62, -20.00, -11.08,\
-                     -11.52, -10.97, -11.74, -10.94, -11.56,\
-                     -11.12, -11.94, -11.20, -11.94, -11.19,\
-                     -12.16, -11.19, -11.78, -10.64, -10.66,\
-                     -10.42, -11.12, -10.87, -11.14, -10.29,\
-                     -11.39, -20.00, -20.00, -20.00, -20.00,\
-                     -20.00, -20.00, -12.02, -20.00, -12.58,\
-                     -20.00, -20.00, -20.00, -20.00, -20.00,\
-                     -20.00, -20.00])
+    if abu is None:
+        abu = np.array([ 1.0 0.085034, \
+                         -10.99, -10.66,  -9.34,  -3.61,  -4.21,\
+                         -3.35,  -7.48,  -4.11,  -5.80,  -4.44,\
+                         -5.59,  -4.53,  -6.63,  -4.92,  -6.54,\
+                         -5.64,  -7.01,  -5.70,  -8.89,  -7.09,\
+                         -8.11,  -6.40,  -6.61,  -4.54,  -7.05,\
+                         -5.82,  -7.85,  -7.48,  -9.00,  -8.39,\
+                         -9.74,  -8.70,  -9.50,  -8.79,  -9.52,\
+                         -9.17,  -9.83,  -9.46, -10.58, -10.16,\
+                         -20.00, -10.29, -11.13, -10.47, -11.10,\
+                         -10.33, -11.24, -10.00, -11.03,  -9.86,\
+                         -10.49,  -9.80, -10.96,  -9.86, -10.94,\
+                         -10.46, -11.32, -10.62, -20.00, -11.08,\
+                         -11.52, -10.97, -11.74, -10.94, -11.56,\
+                         -11.12, -11.94, -11.20, -11.94, -11.19,\
+                         -12.16, -11.19, -11.78, -10.64, -10.66,\
+                         -10.42, -11.12, -10.87, -11.14, -10.29,\
+                         -11.39, -20.00, -20.00, -20.00, -20.00,\
+                         -20.00, -20.00, -12.02, -20.00, -12.58,\
+                         -20.00, -20.00, -20.00, -20.00, -20.00,\
+                         -20.00, -20.00])
+        abu[2:] = 10**abu[2:]
 
+    # Abundances input
+    else:
+        # scale down by feh
+        abu[2:] /= scale
+
+        
     # scale global metallicity
-    abu[2:] += feh
+    #abu[2:] += feh
 
     # renormalize Hydrogen such that X+Y+Z=1
     solar_He = 0.07837
@@ -371,7 +386,6 @@ def make_header(labels,ndepths=80,abu=None,scale=1.0):
 
     ### include He ####
     solar_He_5s = "%.5f" % solar_He
-
             
     # Construct the header
     header = ['TEFF   ' +  abu0s[0] + '.  GRAVITY  ' + abu4s[1] + ' LTE \n',
