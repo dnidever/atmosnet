@@ -97,6 +97,20 @@ def read_kurucz_model(modelfile):
         line = f.readline()
         entries = line.split() 
 
+    # Get metallicity
+    #  if SCALE=1.000, then double-check if this is actually solar or somebody
+    #  didn't use SCALE to encode the metallicity
+    feh = np.log10(scale)
+    if scale==1.0:
+        # check Fe and other abundances against solar values
+        names,mass,solar_abu = utils.elements()
+        #solar_abu = np.array(solar_abu)
+        #solar_abu[2:] = np.log10(solar_abu[2:])+12.0
+        ratio_abu = np.array(abu)[2:82]/solar_abu[2:82]
+        # Not solar, get [Fe/H] from Fe
+        if np.abs(np.median(np.log10(ratio_abu)))>0.02:
+            feh = np.log10(ratio_abu[23])  # ratio for element 26
+        
     assert (entries[0] == 'READ'), 'I cannot find the header of the atmospheric table in the input Kurucz model'
 
     nd = int(entries[2])
@@ -105,7 +119,7 @@ def read_kurucz_model(modelfile):
     line2 = f.readline()
     entries2 = line2.split()
     vmicro = float(entries2[6])/1e5
-    labels = [teff,logg,vmicro]
+    labels = [teff,logg,feh,vmicro]
 
     # Carlos removed the first two depths, why?
     
@@ -263,7 +277,7 @@ def check_params(model,params):
     else:    
         return params
 
-def make_header(labels,ndepths=80,abu=None):
+def make_header(labels,ndepths=80,abu=None,scale=1.0):
     """
     Make Kurucz model atmosphere header
     """
@@ -333,12 +347,11 @@ def make_header(labels,ndepths=80,abu=None):
     solar_He = 0.07837
     renormed_H = 1. - solar_He - np.sum(10.**abu[2:],axis=0)
 
-    # make input string
+    # make formatted string arrays
     abu0s = np.copy(abu).astype("str")
     abu2s = np.copy(abu).astype("str")
     abu3s = np.copy(abu).astype("str")
-    abu4s = np.copy(abu).astype("str")
-    
+    abu4s = np.copy(abu).astype("str")    
     # loop over all entries
     for p1 in range(abu.shape[0]):
         # make it to string
@@ -363,9 +376,12 @@ def make_header(labels,ndepths=80,abu=None):
     # Construct the header
     header = ['TEFF   ' +  abu0s[0] + '.  GRAVITY  ' + abu4s[1] + ' LTE \n',
               'TITLE ATLAS12                                                                   \n',
+              # TITLE  [0.5a] VTURB=2  L/H=1.25 NOVER NEW ODF
+              # https://wwwuser.oats.inaf.it/castelli/grids/gridp05ak2odfnew/ap05at6250g30k2odfnew.dat
               ' OPACITY IFOP 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 0 0 0\n',
               ' CONVECTION ON   1.25 TURBULENCE OFF  0.00  0.00  0.00  0.00\n',
-              'ABUNDANCE SCALE   1.00000 ABUNDANCE CHANGE 1 ' + renormed_H_5s + ' 2 ' + solar_He_5s + '\n',
+              'ABUNDANCE SCALE   '+('%.5f' % scale)+' ABUNDANCE CHANGE 1 ' + renormed_H_5s + ' 2 ' + solar_He_5s + '\n',
+              #'ABUNDANCE SCALE   1.00000 ABUNDANCE CHANGE 1 ' + renormed_H_5s + ' 2 ' + solar_He_5s + '\n',              
               ' ABUNDANCE CHANGE  3 ' + abu2s[ 2] + '  4 ' + abu2s[ 3] + '  5 ' + abu2s[ 4] + '  6 ' + abu2s[ 5] + '  7 ' + abu2s[ 6] + '  8 ' + abu2s[ 7] + '\n',
               ' ABUNDANCE CHANGE  9 ' + abu2s[ 8] + ' 10 ' + abu2s[ 9] + ' 11 ' + abu2s[10] + ' 12 ' + abu2s[11] + ' 13 ' + abu2s[12] + ' 14 ' + abu2s[13] + '\n',
               ' ABUNDANCE CHANGE 15 ' + abu2s[14] + ' 16 ' + abu2s[15] + ' 17 ' + abu2s[16] + ' 18 ' + abu2s[17] + ' 19 ' + abu2s[18] + ' 20 ' + abu2s[19] + '\n',
@@ -443,7 +459,7 @@ class Atmosphere(object):
 
     # RHOX,T,P,XNE,ABROSS,ACCRAD,VTURB, FLXCNV
     
-    def __init__(self,data,header,labels=None,abu=None,mtype='kurucz'):
+    def __init__(self,data,header,labels=None,abu=None,scale=None,mtype='kurucz'):
         """ Initialize Atmosphere object. """
         self.data = data
         self.header = header
@@ -451,6 +467,7 @@ class Atmosphere(object):
         self.ndepths = self.data.shape[0]
         self.labels = labels   # [teff, logg, feh, vmicro]
         self.abu = abu
+        self.scale = scale
         self.mtype = mtype
         self._tauross = None
 
