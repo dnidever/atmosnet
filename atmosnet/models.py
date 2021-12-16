@@ -90,13 +90,24 @@ def read_kurucz_model(modelfile):
             i = i + 1 
         for i in range(int((len(entries)-w-1)/2)):
             z = int(entries[w+1+2*i])
-            if (z == 1): nhntot = float(entries[w+2+2*i])
-            if (z < 3): abu.append(float(entries[w+2+2*i]) / nhntot) 
-            else: abu.append(scale*10.**(float(entries[w+2+2*i])) / nhntot)
+            #f (z == 1): nhntot = float(entries[w+2+2*i])
+            #if (z < 3): abu.append(float(entries[w+2+2*i]) / nhntot) 
+            #else: abu.append(scale*10.**(float(entries[w+2+2*i])) / nhntot)
+            abu.append(float(entries[w+2+2*i]))
 
         line = f.readline()
         entries = line.split() 
+        
+    # Convert to linear and scale all of the abundances by the "scale" or [M/H]
+    abu = np.array(abu)
+    abu[2:] = scale*10.**abu[2:]
 
+    # The abundances in the Kurucz model headers are all relative to N(tot), not N(H)
+    # We just need to divide by (N(H)/N(tot)) which is the first abundances value (for H).
+    # Leave the first value so we remember what it was.
+    nhntot = abu[0]
+    abu[1:] /= nhntot
+        
     # Get metallicity
     #  if SCALE=1.000, then double-check if this is actually solar or somebody
     #  didn't use SCALE to encode the metallicity
@@ -107,9 +118,8 @@ def read_kurucz_model(modelfile):
         ratio_abu = np.array(abu)[:82]/solar_abu[:82]
         # Not solar, get [Fe/H] from Fe
         if np.abs(np.median(np.log10(ratio_abu[2:])))>0.02:
-            #feh = np.log10(ratio_abu[23])  # ratio for element 26
             # use most elements (non-alpha)
-            #  Fe depends on solar value used
+            #  Fe depends on solar Fe value used
             ind = np.arange(82)
             ind = np.delete(ind,[0,1,5,6,7,11,13,15,19,21,])
             feh = np.median(np.log10(ratio_abu[ind]))
@@ -326,7 +336,7 @@ def make_header(labels,ndepths=80,abu=None,scale=1.0):
     # first two are Teff and logg
     # last two are Hydrogen and Helium
     if abu is None:
-        abu = np.array([ 1.0 0.085034, \
+        abu = np.array([ 1.0, 0.085034, \
                          -10.99, -10.66,  -9.34,  -3.61,  -4.21,\
                          -3.35,  -7.48,  -4.11,  -5.80,  -4.44,\
                          -5.59,  -4.53,  -6.63,  -4.92,  -6.54,\
