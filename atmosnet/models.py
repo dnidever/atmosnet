@@ -123,7 +123,12 @@ def read_kurucz_model(modelfile):
             ind = np.arange(82)
             ind = np.delete(ind,[0,1,5,6,7,11,13,15,19,21,])
             feh = np.median(np.log10(ratio_abu[ind]))
-            
+
+    # Read until we get to the data
+    while (entries[0] != 'READ'):
+        line = f.readline()
+        entries = line.split() 
+        
     assert (entries[0] == 'READ'), 'I cannot find the header of the atmospheric table in the input Kurucz model'
 
     nd = int(entries[2])
