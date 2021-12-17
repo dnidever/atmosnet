@@ -140,14 +140,25 @@ def read_kurucz_model(modelfile):
     labels = [teff,logg,feh,vmicro]
 
     # Carlos removed the first two depths, why?
-    
+
+    # Format for the data columns
+    fmt10 = '(F15.8, F9.1, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3)'  # ATLAS9
+    fmt9 = '(F15.8, F9.1, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3)'          # ATLAS12
+    if len(entries1)==10:
+        fmt = fmt10
+        ncol = 10
+    else:
+        fmt = fmt9
+        ncol = 9
+
     # Get data
-    data = np.zeros((nd,len(entries2)),float)
+    data = np.zeros((nd,ncol),float)
     data[0,:] = entries1
     data[1,:] = entries2    
     for i in range(nd-2):
         line = f.readline()
-        entries = line.split()
+        #entries = line.split()
+        entries = dln.fread(line,fmt)
         data[i+2,:] = entries
 
     # Get header
