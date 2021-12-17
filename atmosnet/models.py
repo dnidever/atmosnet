@@ -141,14 +141,26 @@ def read_kurucz_model(modelfile):
 
     # Carlos removed the first two depths, why?
 
+    # 2.91865394E+01  16593.8 1.553E+04 3.442E+15-1.512E+01 4.082E+01 2.920E+05 1.205E+10 1.145E+06
+
+    # maybe use line length
+    # 104 for atlas9, 10 columns
+    # 94 for atlas12, 9 columns
+    
     # Format for the data columns
-    fmt10 = '(F15.8, F9.1, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3)'  # ATLAS9
-    fmt9 = '(F15.8, F9.1, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3)'          # ATLAS12
-    if len(entries1)==10:
-        fmt = fmt10
+    # atlas9.for
+    # (1PE15.8,0PF9.1,1P8E10.3))
+    # length of line is 104 characters
+    # atlas12.for
+    # (1PE15.8,0PF9.1,1P7E10.3))
+    # length of line is 94 characters long
+    fmt9 = '(F15.8, F9.1, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3)'  # ATLAS9
+    fmt12 = '(F15.8, F9.1, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3, F10.3)'          # ATLAS12
+    if len(entries1)==10 or len(line)==104:
+        fmt = fmt9
         ncol = 10
     else:
-        fmt = fmt9
+        fmt = fmt12
         ncol = 9
 
     # Get data
